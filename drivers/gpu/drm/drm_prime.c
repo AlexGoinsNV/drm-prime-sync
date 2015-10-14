@@ -28,6 +28,7 @@
 
 #include <linux/export.h>
 #include <linux/dma-buf.h>
+#include <linux/reservation.h>
 #include <drm/drmP.h>
 #include <drm/drm_gem.h>
 
@@ -60,8 +61,14 @@
  * use the drm_gem_prime_{import,export} helpers.
  */
 
+struct drm_prime_fence_ctx {
+	uint32_t context;
+	uint32_t seqno;
+};
+
 struct drm_prime_member {
 	struct list_head entry;
+	struct drm_prime_fence_ctx fctx;
 	struct dma_buf *dma_buf;
 	uint32_t handle;
 };
@@ -83,6 +90,11 @@ static int drm_prime_add_buf_handle(struct drm_prime_file_private *prime_fpriv,
 	get_dma_buf(dma_buf);
 	member->dma_buf = dma_buf;
 	member->handle = handle;
+
+	/* Initialize fence context for PRIME flipping */
+	member->fctx.context = fence_context_alloc(1);
+	member->fctx.seqno = 0;
+
 	list_add(&member->entry, &prime_fpriv->head);
 	return 0;
 }
