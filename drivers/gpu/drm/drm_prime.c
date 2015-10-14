@@ -827,6 +827,26 @@ out:
 }
 EXPORT_SYMBOL(drm_gem_prime_page_flip);
 
+int drm_prime_page_flip_ioctl(struct drm_device *dev,
+			      void *data, struct drm_file *file_priv)
+{
+	struct drm_prime_page_flip *args = data;
+
+	if (!drm_core_check_feature(dev, DRIVER_PRIME))
+		return -EINVAL;
+
+	if (!dev->driver->prime_page_flip)
+		return -ENOSYS;
+
+	/* check flags are valid */
+	if (args->flags & ~DRM_PRIME_PAGE_FLIP_FLAGS)
+		return -EINVAL;
+
+	return dev->driver->prime_page_flip(dev, file_priv,
+			args->handle, args->fb_id, args->crtc_id,
+			args->user_data, args->flags);
+}
+
 /**
  * drm_prime_pages_to_sg - converts a page array into an sg list
  * @pages: pointer to the array of page pointers to convert
