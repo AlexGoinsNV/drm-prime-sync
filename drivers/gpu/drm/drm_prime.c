@@ -87,32 +87,33 @@ static int drm_prime_add_buf_handle(struct drm_prime_file_private *prime_fpriv,
 	return 0;
 }
 
-static struct dma_buf *drm_prime_lookup_buf_by_handle(struct drm_prime_file_private *prime_fpriv,
-						      uint32_t handle)
+static struct drm_prime_member *drm_prime_lookup_member_by_handle(
+				struct drm_prime_file_private *prime_fpriv,
+				uint32_t handle)
 {
 	struct drm_prime_member *member;
 
 	list_for_each_entry(member, &prime_fpriv->head, entry) {
 		if (member->handle == handle)
-			return member->dma_buf;
+			return member;
 	}
 
 	return NULL;
 }
 
-static int drm_prime_lookup_buf_handle(struct drm_prime_file_private *prime_fpriv,
-				       struct dma_buf *dma_buf,
-				       uint32_t *handle)
+static struct drm_prime_member *drm_prime_lookup_buf_member(
+				struct drm_prime_file_private *prime_fpriv,
+				struct dma_buf *dma_buf)
 {
 	struct drm_prime_member *member;
 
 	list_for_each_entry(member, &prime_fpriv->head, entry) {
 		if (member->dma_buf == dma_buf) {
-			*handle = member->handle;
-			return 0;
+			return member;
 		}
 	}
-	return -ENOENT;
+
+	return NULL;
 }
 
 static int drm_gem_map_attach(struct dma_buf *dma_buf,
@@ -404,6 +405,7 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev,
 {
 	struct drm_gem_object *obj;
 	int ret = 0;
+	struct drm_prime_member *member;
 	struct dma_buf *dmabuf;
 
 	mutex_lock(&file_priv->prime.lock);
@@ -413,8 +415,9 @@ int drm_gem_prime_handle_to_fd(struct drm_device *dev,
 		goto out_unlock;
 	}
 
-	dmabuf = drm_prime_lookup_buf_by_handle(&file_priv->prime, handle);
-	if (dmabuf) {
+	member = drm_prime_lookup_member_by_handle(&file_priv->prime, handle);
+	if (member) {
+		dmabuf = member->dma_buf;
 		get_dma_buf(dmabuf);
 		goto out_have_handle;
 	}
@@ -564,6 +567,7 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev,
 			       uint32_t *handle)
 {
 	struct dma_buf *dma_buf;
+	struct drm_prime_member *member;
 	struct drm_gem_object *obj;
 	int ret;
 
@@ -573,10 +577,12 @@ int drm_gem_prime_fd_to_handle(struct drm_device *dev,
 
 	mutex_lock(&file_priv->prime.lock);
 
-	ret = drm_prime_lookup_buf_handle(&file_priv->prime,
-			dma_buf, handle);
-	if (ret == 0)
+	member = drm_prime_lookup_buf_member(&file_priv->prime, dma_buf);
+	if (member) {
+		ret = 0;
+		*handle = member->handle;
 		goto out_put;
+	}
 
 	/* never seen this one, need to import */
 	mutex_lock(&dev->object_name_lock);
