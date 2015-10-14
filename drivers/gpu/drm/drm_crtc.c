@@ -5126,41 +5126,40 @@ out:
 }
 
 /**
- * drm_mode_page_flip_ioctl - schedule an asynchronous fb update
+ * drm_mode_page_flip - schedule an asynchronous fb update
  * @dev: DRM device
- * @data: ioctl data
+ * @crtc_id: CRTC to update
+ * @fb_id: FB to update to
+ * @flags: Flags modifying page flip behavior.
+ * @user_data: Returned as user_data field in in the vblank event struct
  * @file_priv: DRM file info
  *
  * This schedules an asynchronous update on a given CRTC, called page flip.
  * Optionally a drm event is generated to signal the completion of the event.
  * Generic drivers cannot assume that a pageflip with changed framebuffer
  * properties (including driver specific metadata like tiling layout) will work,
- * but some drivers support e.g. pixel format changes through the pageflip
- * ioctl.
- *
- * Called by the user via ioctl.
+ * but some drivers support e.g. pixel format changes through the pageflip.
  *
  * Returns:
  * Zero on success, negative errno on failure.
  */
-int drm_mode_page_flip_ioctl(struct drm_device *dev,
-			     void *data, struct drm_file *file_priv)
+int drm_mode_page_flip(struct drm_device *dev,
+		       uint32_t crtc_id, uint32_t fb_id,
+		       uint32_t flags, uint64_t user_data,
+		       struct drm_file *file_priv)
 {
-	struct drm_mode_crtc_page_flip *page_flip = data;
 	struct drm_crtc *crtc;
 	struct drm_framebuffer *fb = NULL;
 	struct drm_pending_vblank_event *e = NULL;
-	unsigned long flags;
+	unsigned long lock_flags;
 	int ret = -EINVAL;
 
-	if (page_flip->flags & ~DRM_MODE_PAGE_FLIP_FLAGS ||
-	    page_flip->reserved != 0)
+	if ((flags & DRM_MODE_PAGE_FLIP_ASYNC) &&
+	    !dev->mode_config.async_page_flip) {
 		return -EINVAL;
+	}
 
-	if ((page_flip->flags & DRM_MODE_PAGE_FLIP_ASYNC) && !dev->mode_config.async_page_flip)
-		return -EINVAL;
-
-	crtc = drm_crtc_find(dev, page_flip->crtc_id);
+	crtc = drm_crtc_find(dev, crtc_id);
 	if (!crtc)
 		return -ENOENT;
 
@@ -5177,7 +5176,7 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 	if (crtc->funcs->page_flip == NULL)
 		goto out;
 
-	fb = drm_framebuffer_lookup(dev, page_flip->fb_id);
+	fb = drm_framebuffer_lookup(dev, fb_id);
 	if (!fb) {
 		ret = -ENOENT;
 		goto out;
@@ -5200,27 +5199,27 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 		goto out;
 	}
 
-	if (page_flip->flags & DRM_MODE_PAGE_FLIP_EVENT) {
+	if (flags & DRM_MODE_PAGE_FLIP_EVENT) {
 		ret = -ENOMEM;
-		spin_lock_irqsave(&dev->event_lock, flags);
+		spin_lock_irqsave(&dev->event_lock, lock_flags);
 		if (file_priv->event_space < sizeof(e->event)) {
-			spin_unlock_irqrestore(&dev->event_lock, flags);
+			spin_unlock_irqrestore(&dev->event_lock, lock_flags);
 			goto out;
 		}
 		file_priv->event_space -= sizeof(e->event);
-		spin_unlock_irqrestore(&dev->event_lock, flags);
+		spin_unlock_irqrestore(&dev->event_lock, lock_flags);
 
 		e = kzalloc(sizeof(*e), GFP_KERNEL);
 		if (e == NULL) {
-			spin_lock_irqsave(&dev->event_lock, flags);
+			spin_lock_irqsave(&dev->event_lock, lock_flags);
 			file_priv->event_space += sizeof(e->event);
-			spin_unlock_irqrestore(&dev->event_lock, flags);
+			spin_unlock_irqrestore(&dev->event_lock, lock_flags);
 			goto out;
 		}
 
 		e->event.base.type = DRM_EVENT_FLIP_COMPLETE;
 		e->event.base.length = sizeof(e->event);
-		e->event.user_data = page_flip->user_data;
+		e->event.user_data = user_data;
 		e->base.event = &e->event.base;
 		e->base.file_priv = file_priv;
 		e->base.destroy =
@@ -5228,12 +5227,12 @@ int drm_mode_page_flip_ioctl(struct drm_device *dev,
 	}
 
 	crtc->primary->old_fb = crtc->primary->fb;
-	ret = crtc->funcs->page_flip(crtc, fb, e, page_flip->flags);
+	ret = crtc->funcs->page_flip(crtc, fb, e, flags);
 	if (ret) {
-		if (page_flip->flags & DRM_MODE_PAGE_FLIP_EVENT) {
-			spin_lock_irqsave(&dev->event_lock, flags);
+		if (flags & DRM_MODE_PAGE_FLIP_EVENT) {
+			spin_lock_irqsave(&dev->event_lock, lock_flags);
 			file_priv->event_space += sizeof(e->event);
-			spin_unlock_irqrestore(&dev->event_lock, flags);
+			spin_unlock_irqrestore(&dev->event_lock, lock_flags);
 			kfree(e);
 		}
 		/* Keep the old fb, don't unref it. */
@@ -5253,6 +5252,41 @@ out:
 	drm_modeset_unlock_crtc(crtc);
 
 	return ret;
+}
+
+/**
+ * drm_mode_page_flip_ioctl - schedule an asynchronous fb update
+ * @dev: DRM device
+ * @data: ioctl data
+ * @file_priv: DRM file info
+ *
+ * This schedules an asynchronous update on a given CRTC, called page flip.
+ * Optionally a drm event is generated to signal the completion of the event.
+ * Generic drivers cannot assume that a pageflip with changed framebuffer
+ * properties (including driver specific metadata like tiling layout) will work,
+ * but some drivers support e.g. pixel format changes through the pageflip
+ * ioctl.
+ *
+ * Called by the user via ioctl.
+ *
+ * Returns:
+ * Zero on success, negative errno on failure.
+ */
+int drm_mode_page_flip_ioctl(struct drm_device *dev,
+			     void *data, struct drm_file *file_priv)
+{
+	struct drm_mode_crtc_page_flip *page_flip = data;
+
+	if (page_flip->reserved != 0)
+		return -EINVAL;
+
+	if (page_flip->flags & ~DRM_MODE_PAGE_FLIP_FLAGS)
+		return -EINVAL;
+
+	return drm_mode_page_flip(dev,
+				  page_flip->crtc_id, page_flip->fb_id,
+				  page_flip->flags, page_flip->user_data,
+				  file_priv);
 }
 
 /**

@@ -1448,6 +1448,10 @@ extern enum hdmi_picture_aspect drm_get_cea_aspect_ratio(const u8 video_code);
 extern bool drm_detect_hdmi_monitor(struct edid *edid);
 extern bool drm_detect_monitor_audio(struct edid *edid);
 extern bool drm_rgb_quant_range_selectable(struct edid *edid);
+extern int drm_mode_page_flip(struct drm_device *dev,
+			      uint32_t crtc_id, uint32_t fb_id,
+			      uint32_t flags, uint64_t user_data,
+			      struct drm_file *file_priv);
 extern int drm_mode_page_flip_ioctl(struct drm_device *dev,
 				    void *data, struct drm_file *file_priv);
 extern int drm_add_modes_noedid(struct drm_connector *connector,
