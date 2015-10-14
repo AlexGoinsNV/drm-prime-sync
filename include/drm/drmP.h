@@ -593,6 +593,11 @@ struct drm_driver {
 	/* import dmabuf -> GEM */
 	struct drm_gem_object * (*gem_prime_import)(struct drm_device *dev,
 				struct dma_buf *dma_buf);
+	/* schedule flip to dmabuf on fence signal
+	 * (see drm_gem_prime_page_flip() helper) */
+	int (*prime_page_flip)(struct drm_device *dev, struct drm_file *file_priv,
+			       uint32_t handle, uint32_t fb_id, uint32_t crtc_id,
+			       uint64_t user_data, uint32_t flags);
 	/* low-level interface used by drm_gem_prime_{import,export} */
 	int (*gem_prime_pin)(struct drm_gem_object *obj);
 	void (*gem_prime_unpin)(struct drm_gem_object *obj);

@@ -942,6 +942,7 @@ static struct drm_driver tegra_drm_driver = {
 
 	.prime_handle_to_fd = drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle = drm_gem_prime_fd_to_handle,
+	.prime_page_flip = drm_gem_prime_page_flip,
 	.gem_prime_export = tegra_gem_prime_export,
 	.gem_prime_import = tegra_gem_prime_import,
 

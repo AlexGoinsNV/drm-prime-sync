@@ -203,6 +203,7 @@ static struct drm_driver armada_drm_driver = {
 	.gem_free_object	= armada_gem_free_object,
 	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle,
+	.prime_page_flip	= drm_gem_prime_page_flip,
 	.gem_prime_export	= armada_gem_prime_export,
 	.gem_prime_import	= armada_gem_prime_import,
 	.dumb_create		= armada_gem_dumb_create,

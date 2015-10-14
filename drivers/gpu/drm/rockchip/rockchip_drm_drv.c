@@ -290,6 +290,7 @@ static struct drm_driver rockchip_drm_driver = {
 	.dumb_destroy		= drm_gem_dumb_destroy,
 	.prime_handle_to_fd	= drm_gem_prime_handle_to_fd,
 	.prime_fd_to_handle	= drm_gem_prime_fd_to_handle,
+	.prime_page_flip	= drm_gem_prime_page_flip,
 	.gem_prime_import	= drm_gem_prime_import,
 	.gem_prime_export	= drm_gem_prime_export,
 	.gem_prime_get_sg_table	= rockchip_gem_prime_get_sg_table,

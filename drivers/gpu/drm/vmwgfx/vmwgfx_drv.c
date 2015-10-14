@@ -1509,6 +1509,7 @@ static struct drm_driver driver = {
 
 	.prime_fd_to_handle = vmw_prime_fd_to_handle,
 	.prime_handle_to_fd = vmw_prime_handle_to_fd,
+	.prime_page_flip = drm_gem_prime_page_flip,
 
 	.fops = &vmwgfx_driver_fops,
 	.name = VMWGFX_DRIVER_NAME,
