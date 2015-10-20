@@ -61,6 +61,11 @@
  * use the drm_gem_prime_{import,export} helpers.
  */
 
+struct drm_prime_fence {
+	struct fence base;
+	spinlock_t lock;
+};
+
 struct drm_prime_fence_ctx {
 	uint32_t context;
 	uint32_t seqno;
@@ -76,6 +81,16 @@ struct drm_prime_member {
 struct drm_prime_attachment {
 	struct sg_table *sgt;
 	enum dma_data_direction dir;
+};
+
+struct drm_gem_prime_page_flip_cb {
+	struct fence_cb base;
+	struct drm_device *dev;
+	uint32_t crtc_id;
+	uint32_t fb_id;
+	uint32_t flags;
+	uint64_t user_data;
+	struct drm_file *file_priv;
 };
 
 static int drm_prime_add_buf_handle(struct drm_prime_file_private *prime_fpriv,
@@ -314,6 +329,28 @@ static const struct dma_buf_ops drm_gem_prime_dmabuf_ops =  {
 	.mmap = drm_gem_dmabuf_mmap,
 	.vmap = drm_gem_dmabuf_vmap,
 	.vunmap = drm_gem_dmabuf_vunmap,
+};
+
+static const char *drm_gem_prime_get_driver_name(struct fence *fence)
+{
+	return "PRIME";
+}
+
+static const char *drm_gem_prime_get_timeline_name(struct fence *fence)
+{
+	return "prime.swonly";
+}
+
+static bool drm_gem_prime_enable_signaling(struct fence *fence)
+{
+	return true; /* SW signaling only */
+}
+
+static const struct fence_ops drm_gem_prime_fence_ops = {
+	.get_driver_name = drm_gem_prime_get_driver_name,
+	.get_timeline_name = drm_gem_prime_get_timeline_name,
+	.enable_signaling = drm_gem_prime_enable_signaling,
+	.wait = fence_default_wait,
 };
 
 /**
@@ -679,6 +716,116 @@ int drm_prime_fd_to_handle_ioctl(struct drm_device *dev, void *data,
 	return dev->driver->prime_fd_to_handle(dev, file_priv,
 			args->fd, &args->handle);
 }
+
+/* Callback used by drm_gem_prime_page_flip(). Is added to a fence such that
+ * when the fence is signaled, page flip is requested with given parameters. */
+static void drm_gem_prime_page_flip_cb(struct fence *fence,
+				       struct fence_cb *cb)
+{
+	struct drm_gem_prime_page_flip_cb *page_flip_cb =
+		container_of(cb, struct drm_gem_prime_page_flip_cb, base);
+
+	drm_mode_page_flip(page_flip_cb->dev,
+			   page_flip_cb->crtc_id,
+			   page_flip_cb->fb_id,
+			   page_flip_cb->flags,
+			   page_flip_cb->user_data,
+			   page_flip_cb->file_priv);
+
+	kfree(cb);
+}
+
+/**
+ * drm_gem_prime_page_flip -
+ *     helper library implementation of the page flip callback
+ *
+ * @dev: DRM device
+ * @file_priv: DRM file info
+ * @handle: buffer handle to fence
+ * @fb_id: FB to update to
+ * @crtc_id: CRTC to update
+ * @user_data: Returned as user_data field in in the vblank event struct
+ * @flags: Flags modifying page flip behavior, same as drm_mode_page_flip.
+ *
+ * This is the implementation of the prime_page_flip function for GEM drivers
+ * using the PRIME helpers.
+ */
+int drm_gem_prime_page_flip(struct drm_device *dev,
+			    struct drm_file *file_priv, uint32_t handle,
+			    uint32_t fb_id, uint32_t crtc_id,
+			    uint64_t user_data, uint32_t flags)
+{
+	int ret;
+
+	struct dma_buf *dmabuf;
+	struct fence *oldfence;
+	struct drm_prime_fence *fence;
+	struct drm_gem_prime_page_flip_cb *page_flip_cb;
+	struct drm_prime_member *member;
+	struct drm_prime_fence_ctx *fctx;
+
+	mutex_lock(&file_priv->prime.lock);
+
+	member = drm_prime_lookup_member_by_handle(&file_priv->prime,
+						   handle);
+	if (!member) {
+		/* Buffer is not a member of PRIME */
+		ret = -EINVAL;
+		goto out;
+	}
+
+	dmabuf = member->dma_buf;
+	fctx = &member->fctx;
+
+	/* Clear out old fence callbacks */
+	oldfence = reservation_object_get_excl(dmabuf->resv);
+	if (oldfence)
+		fence_signal(oldfence);
+
+	/* Create and initialize new fence */
+	fence = kmalloc(sizeof(*fence), GFP_KERNEL);
+	if (!fence) {
+		ret = -ENOMEM;
+		goto out;
+	}
+
+	spin_lock_init(&fence->lock);
+	fence_init(&fence->base, &drm_gem_prime_fence_ops, &fence->lock,
+		   fctx->context, fctx->seqno++);
+
+	/* Create and initialize new page flip callback */
+	page_flip_cb = kmalloc(sizeof(*page_flip_cb), GFP_KERNEL);
+	if (!page_flip_cb) {
+		ret = -ENOMEM;
+		fence_free(&fence->base);
+		goto out;
+	}
+
+	*page_flip_cb = (struct drm_gem_prime_page_flip_cb) {
+		.dev = dev,
+		.crtc_id = crtc_id,
+		.fb_id = fb_id,
+		.flags = flags,
+		.user_data = user_data,
+		.file_priv = file_priv,
+	};
+
+	ret = fence_add_callback(&fence->base, &page_flip_cb->base,
+				 drm_gem_prime_page_flip_cb);
+	if (ret) {
+		fence_free(&fence->base);
+		kfree(page_flip_cb);
+		goto out;
+	}
+
+	/* Add new fence */
+	reservation_object_add_excl_fence(dmabuf->resv, &fence->base);
+	fence_put(&fence->base); /* Reservation object has reference */
+out:
+	mutex_unlock(&file_priv->prime.lock);
+	return ret;
+}
+EXPORT_SYMBOL(drm_gem_prime_page_flip);
 
 /**
  * drm_prime_pages_to_sg - converts a page array into an sg list

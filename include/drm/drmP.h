@@ -1028,6 +1028,9 @@ extern struct drm_gem_object *drm_gem_prime_import(struct drm_device *dev,
 		struct dma_buf *dma_buf);
 extern int drm_gem_prime_fd_to_handle(struct drm_device *dev,
 		struct drm_file *file_priv, int prime_fd, uint32_t *handle);
+extern int drm_gem_prime_page_flip(struct drm_device *dev,
+		struct drm_file *file_priv, uint32_t handle, uint32_t fb_id,
+		uint32_t crtc_id, uint64_t user_data, uint32_t flags);
 extern void drm_gem_dmabuf_release(struct dma_buf *dma_buf);
 
 extern int drm_prime_sg_to_page_addr_arrays(struct sg_table *sgt, struct page **pages,
