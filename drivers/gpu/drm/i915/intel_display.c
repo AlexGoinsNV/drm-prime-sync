@@ -13347,6 +13347,12 @@ intel_prepare_plane_fb(struct drm_plane *plane,
 	if (!obj)
 		return 0;
 
+	/* For framebuffer backed by dmabuf, wait for fence */
+	if (obj->base.dma_buf)
+		reservation_object_wait_timeout_rcu(obj->base.dma_buf->resv,
+						    false, true,
+						    MAX_SCHEDULE_TIMEOUT);
+
 	mutex_lock(&dev->struct_mutex);
 
 	if (plane->type == DRM_PLANE_TYPE_CURSOR &&
