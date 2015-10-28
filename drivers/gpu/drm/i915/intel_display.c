@@ -44,6 +44,8 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_rect.h>
 #include <linux/dma_remapping.h>
+#include <linux/reservation.h>
+#include <linux/dma-buf.h>
 
 /* Primary plane formats for gen <= 3 */
 static const uint32_t i8xx_primary_formats[] = {
@@ -11088,6 +11090,8 @@ static bool use_mmio_flip(struct intel_engine_cs *ring,
 		return true;
 	else if (i915.enable_execlists)
 		return true;
+	else if (obj->base.dma_buf && obj->base.dma_buf->resv->fence_excl)
+		return true;
 	else
 		return ring != i915_gem_request_get_ring(obj->last_write_req);
 }
@@ -11189,12 +11193,21 @@ static void intel_mmio_flip_work_func(struct work_struct *work)
 {
 	struct intel_mmio_flip *mmio_flip =
 		container_of(work, struct intel_mmio_flip, work);
+	struct intel_framebuffer *intel_fb =
+		to_intel_framebuffer(mmio_flip->crtc->base.primary->fb);
+	struct drm_i915_gem_object *obj = intel_fb->obj;
 
 	if (mmio_flip->req)
 		WARN_ON(__i915_wait_request(mmio_flip->req,
 					    mmio_flip->crtc->reset_counter,
 					    false, NULL,
 					    &mmio_flip->i915->rps.mmioflips));
+
+	/* For framebuffer backed by dmabuf, wait for fence */
+	if (obj->base.dma_buf)
+		reservation_object_wait_timeout_rcu(obj->base.dma_buf->resv,
+						    false, true,
+						    MAX_SCHEDULE_TIMEOUT);
 
 	intel_do_mmio_flip(mmio_flip->crtc);
 
