@@ -13097,6 +13097,8 @@ static int intel_atomic_commit(struct drm_device *dev,
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct drm_crtc *crtc;
 	struct drm_crtc_state *crtc_state;
+	struct drm_plane *plane;
+	struct drm_plane_state *plane_state;
 	int ret = 0;
 	int i;
 	bool any_ms = false;
@@ -13111,6 +13113,28 @@ static int intel_atomic_commit(struct drm_device *dev,
 		return ret;
 
 	drm_atomic_helper_swap_state(dev, state);
+
+	/* For all framebuffers backed by dmabuf, wait for fence */
+	for_each_plane_in_state(state, plane, plane_state, i) {
+		struct drm_framebuffer *fb;
+		struct drm_i915_gem_object *obj;
+
+		fb = plane->state->fb;
+		if (!fb)
+			continue;
+
+		obj = intel_fb_obj(fb);
+		if (!obj)
+			continue;
+
+		mutex_lock(&obj->base.dev->object_name_lock);
+		if (obj->base.dma_buf) {
+			reservation_object_wait_timeout_rcu(
+				obj->base.dma_buf->resv,
+				true, false, msecs_to_jiffies(96));
+		}
+		mutex_unlock(&obj->base.dev->object_name_lock);
+	}
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
 		struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
