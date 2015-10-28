@@ -44,6 +44,8 @@
 #include <drm/drm_plane_helper.h>
 #include <drm/drm_rect.h>
 #include <linux/dma_remapping.h>
+#include <linux/reservation.h>
+#include <linux/dma-buf.h>
 
 /* Primary plane formats for gen <= 3 */
 static const uint32_t i8xx_primary_formats[] = {
@@ -11170,9 +11172,18 @@ static void ilk_do_mmio_flip(struct intel_crtc *intel_crtc)
 static void intel_do_mmio_flip(struct intel_crtc *intel_crtc)
 {
 	struct drm_device *dev = intel_crtc->base.dev;
+	struct drm_i915_gem_object *pending_flip_obj =
+		intel_crtc->unpin_work->pending_flip_obj;
 	u32 start_vbl_count;
 
 	intel_mark_page_flip_active(intel_crtc);
+
+	/* For framebuffer backed by dmabuf, wait for fence */
+	if (pending_flip_obj->base.dma_buf) {
+		reservation_object_wait_timeout_rcu(
+			pending_flip_obj->base.dma_buf->resv,
+			true, false, msecs_to_jiffies(96));
+	}
 
 	intel_pipe_update_start(intel_crtc, &start_vbl_count);
 
